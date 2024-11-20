@@ -12,43 +12,36 @@ import java.util.Map;
 
 public class Main implements RequestHandler<Map<String, Object>, Map<String, Object>> {
     private final S3Client s3Client = S3Client.builder().build();
-
     private final ObjectMapper objectMapper = new ObjectMapper();
+
     @Override
     public Map<String, Object> handleRequest(Map<String, Object> input, Context context) {
         String pathParameters = (String) input.get("rawPath");
+
+        if (pathParameters == null) {
+            throw new IllegalArgumentException("rawPath is required in input.");
+        }
+
         String shortUrlCode = pathParameters.replace("/", "");
 
-        if (shortUrlCode ==null || shortUrlCode.isEmpty()) {
+        if (shortUrlCode == null || shortUrlCode.isEmpty()) {
             throw new IllegalArgumentException("Invalid input: 'shortUrlCode' is required.");
         }
 
         GetObjectRequest getObjectRequest = GetObjectRequest.builder()
                 .bucket("url-shortner-storage-ftc-xx23")
-                .key(shortUrlCode + "json")
+                .key(shortUrlCode + ".json")
                 .build();
 
-        InputStream s3ObjectStream;
-
-        try {
-            s3ObjectStream = s3Client.getObject(getObjectRequest);
-        } catch (Exception e){
-            throw new RuntimeException("Error fetching URL data from S3:" + e.getMessage(), e);
-        }
-
-
         UrlData urlData;
-        try {
+        try (InputStream s3ObjectStream = s3Client.getObject(getObjectRequest)) {
             urlData = objectMapper.readValue(s3ObjectStream, UrlData.class);
         } catch (Exception e) {
             throw new RuntimeException("Error deserializing data: " + e.getMessage(), e);
         }
 
-
         long currentTimeInSeconds = System.currentTimeMillis() / 1000;
-
         Map<String, Object> response = new HashMap<>();
-
 
         if (urlData.getExpirationTime() < currentTimeInSeconds) {
             response.put("statusCode", 410);
@@ -60,7 +53,6 @@ public class Main implements RequestHandler<Map<String, Object>, Map<String, Obj
         Map<String, String> headers = new HashMap<>();
         headers.put("Location", urlData.getOriginalUrl());
         response.put("headers", headers);
-
 
         return response;
     }
